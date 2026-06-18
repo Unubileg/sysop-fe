@@ -1,46 +1,41 @@
 import { useState, type ComponentType } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   ExternalLink,
   Rocket,
   RotateCcw,
   Hammer,
   CirclePlay,
-  GitBranch,
-  Loader2,
+  CircleStop,
 } from 'lucide-react'
 import { api, type App } from '@/api'
 import { InfoCard, Row, Section, useHashScroll } from '@/components/settings'
-import { GithubIcon, GitlabIcon } from '@/components/icons/GitProviderIcons'
 import { useTeamSlug } from '@/contexts/teams'
 import { errorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmDeleteDialog } from '@/components/ConfirmDeleteDialog'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/lib/format'
 
-// ProjectConfiguration renders the project's General tab: deploy actions, the
-// code provider, and the settings sysop fully backs (project details + danger
-// zone). It's the default project page, reached from the swiper tab bar in
-// ProjectDetail.
-export function ProjectConfiguration({ app }: { app: App }) {
-  return <GeneralSettings app={app} />
+export function ProjectConfiguration({
+  app,
+  onChanged,
+}: {
+  app: App
+  onChanged: () => void
+}) {
+  return <GeneralSettings app={app} onChanged={onChanged} />
 }
 
-// GeneralSettings is the project's General tab. Deploy actions and the provider
-// picker are UI scaffolding (no backend yet); project details come from the app
-// row and are real.
-function GeneralSettings({ app }: { app: App }) {
+function GeneralSettings({
+  app,
+  onChanged,
+}: {
+  app: App
+  onChanged: () => void
+}) {
   useHashScroll()
   const server = app.server_ip
     ? `${app.server_ip}${app.port ? `:${app.port}` : ''}`
@@ -48,8 +43,7 @@ function GeneralSettings({ app }: { app: App }) {
 
   return (
     <div className="space-y-6">
-      <DeploySettings app={app} />
-      <Provider />
+      <DeploySettings app={app} onChanged={onChanged} />
 
       <Section
         id="project-details"
@@ -101,22 +95,51 @@ function GeneralSettings({ app }: { app: App }) {
             <Button variant="outline" size="sm" disabled>
               {app.status === 'active' ? 'Stop project' : 'Start project'}
             </Button>
+            <p className="text-xs text-muted-foreground">
+              The availability toggle isn't wired to the backend yet.
+            </p>
           </div>
           <div className="space-y-1.5 border-t border-destructive/20 pt-4">
             <p className="text-sm font-medium">Delete project</p>
             <p className="text-sm text-muted-foreground">
-              Once you delete a project, there is no going back.
+              Once you delete a project, there is no going back. This permanently
+              removes the service along with all of its deployments and domains.
             </p>
-            <Button variant="destructive" size="sm" disabled>
-              Delete this project
-            </Button>
+            <DeleteServiceButton app={app} />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Project lifecycle actions aren't wired to the backend yet.
-          </p>
         </div>
       </Section>
     </div>
+  )
+}
+
+function DeleteServiceButton({ app }: { app: App }) {
+  const slug = useTeamSlug()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  return (
+    <ConfirmDeleteDialog
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <Button variant="destructive" size="sm">
+          Delete this project
+        </Button>
+      }
+      resourceNoun="service"
+      confirmName={app.name}
+      description="This action cannot be undone. This will permanently delete the service, along with all of its deployments and domains."
+      onConfirm={() => api.deleteApp(app.name)}
+      successToast="Service deleted"
+      errorToast="Could not delete the service."
+      onSuccess={() =>
+        navigate(
+          app.project_id
+            ? `/teams/${slug}/projects/${app.project_id}`
+            : `/teams/${slug}/projects`,
+        )
+      }
+    />
   )
 }
 
@@ -133,9 +156,6 @@ type DeployAction = {
   run: (appName: string) => Promise<unknown>
 }
 
-// ACTIONS are the deploy controls. Each opens a confirmation dialog; on confirm
-// it calls the matching control-plane endpoint, shows a spinner while in flight,
-// and reports the outcome with a toast. `done`/`fail` phrase those toasts.
 const ACTIONS: DeployAction[] = [
   {
     label: 'Deploy',
@@ -165,29 +185,22 @@ const ACTIONS: DeployAction[] = [
     fail: 'Could not start the rebuild.',
     run: (name) => api.rebuildApp(name),
   },
-  {
-    label: 'Start',
-    icon: CirclePlay,
-    title: 'Start Application',
-    body: 'Start the stopped container for this application.',
-    done: 'Application started',
-    fail: 'Could not start the application.',
-    run: (name) => api.startApp(name),
-  },
 ]
 
-// DeploySettings is the row of deploy actions and toggles at the top of the
-// General tab. Each action confirms before calling its endpoint; the toggles
-// persist to the app row (autodeploy gates webhook builds, clean cache makes
-// the next build skip the cache).
-function DeploySettings({ app }: { app: App }) {
+function DeploySettings({
+  app,
+  onChanged,
+}: {
+  app: App
+  onChanged: () => void
+}) {
   const slug = useTeamSlug()
   const navigate = useNavigate()
-  // After a successful Deploy, drop the user on the Deployments tab so they can
-  // watch the build they just queued.
+  const running = app.deploy_status === 'running'
+
   const goToDeploys = () =>
     navigate(
-      `/teams/${slug}/projects/${encodeURIComponent(app.name)}/deploys`,
+      `/teams/${slug}/services/${encodeURIComponent(app.name)}/deploys`,
     )
   return (
     <Card>
@@ -198,9 +211,17 @@ function DeploySettings({ app }: { app: App }) {
             key={a.label}
             appName={app.name}
             action={a}
-            onSuccess={a.label === 'Deploy' ? goToDeploys : undefined}
+            onSuccess={() => {
+              onChanged()
+              if (a.label === 'Deploy') goToDeploys()
+            }}
           />
         ))}
+        <StartStopButton
+          appName={app.name}
+          running={running}
+          onChanged={onChanged}
+        />
         <Toggle
           appName={app.name}
           settingKey="autodeploy"
@@ -218,9 +239,57 @@ function DeploySettings({ app }: { app: App }) {
   )
 }
 
-// ActionButton is a deploy control guarded by a confirmation dialog. Confirming
-// runs the action's endpoint; the dialog stays open with a spinner until it
-// resolves, then closes on success or surfaces an error toast.
+function StartStopButton({
+  appName,
+  running,
+  onChanged,
+}: {
+  appName: string
+  running: boolean
+  onChanged: () => void
+}) {
+  const Icon = running ? CircleStop : CirclePlay
+  const label = running ? 'Stop' : 'Start'
+  const stopClass = 'border-transparent bg-red-600 text-white hover:bg-red-600/90'
+
+  return (
+    <ConfirmDialog
+      trigger={
+        <Button
+          variant={running ? 'default' : 'secondary'}
+          className={running ? stopClass : undefined}
+        >
+          <Icon className="size-4" />
+          {label}
+        </Button>
+      }
+      title={`${label} Application`}
+      description={
+        running
+          ? 'Are you sure you want to stop this application?'
+          : 'Are you sure you want to start this application?'
+      }
+      confirmLabel={label}
+      confirmIcon={Icon}
+      confirmVariant={running ? 'default' : 'secondary'}
+      confirmClassName={running ? stopClass : undefined}
+      errorToast={
+        running ? 'Error stopping application' : 'Error starting application'
+      }
+      onConfirm={async () => {
+        if (running) {
+          await api.stopApp(appName)
+          toast('Application stopped')
+        } else {
+          await api.startApp(appName)
+          toast('Application started')
+        }
+        onChanged()
+      }}
+    />
+  )
+}
+
 function ActionButton({
   appName,
   action,
@@ -231,122 +300,29 @@ function ActionButton({
   onSuccess?: () => void
 }) {
   const Icon = action.icon
-  const [open, setOpen] = useState(false)
-  const [pending, setPending] = useState(false)
-
-  async function handleConfirm() {
-    setPending(true)
-    try {
-      await action.run(appName)
-      toast(action.done)
-      setOpen(false)
-      onSuccess?.()
-    } catch (err) {
-      toast(errorMessage(err, action.fail), 'error')
-    } finally {
-      setPending(false)
-    }
-  }
-
   return (
-    <AlertDialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
-      <AlertDialogTrigger asChild>
+    <ConfirmDialog
+      trigger={
         <Button variant={action.primary ? 'default' : 'secondary'}>
           <Icon className="size-4" />
           {action.label}
         </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{action.title}</AlertDialogTitle>
-          <AlertDialogDescription>{action.body}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-          {/* A plain Button (not AlertDialogAction) so the dialog doesn't
-              auto-close — we close it ourselves only once the request succeeds. */}
-          <Button
-            variant={action.primary ? 'default' : 'secondary'}
-            disabled={pending}
-            onClick={handleConfirm}
-          >
-            {pending ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
-            {action.label}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      }
+      title={action.title}
+      description={action.body}
+      confirmLabel={action.label}
+      confirmIcon={Icon}
+      confirmVariant={action.primary ? 'default' : 'secondary'}
+      errorToast={action.fail}
+      onConfirm={async () => {
+        await action.run(appName)
+        toast(action.done)
+        onSuccess?.()
+      }}
+    />
   )
 }
 
-const PROVIDERS = [
-  { key: 'github', label: 'Github', icon: GithubIcon },
-  { key: 'gitlab', label: 'Gitlab', icon: GitlabIcon },
-] as const
-
-// Provider lets the user pick where their code comes from. It's UI scaffolding
-// today: sysop deploys from the repository on the app row, so each provider
-// just points back to Settings.
-function Provider() {
-  const slug = useTeamSlug()
-  const [active, setActive] = useState<string>('github')
-  const current = PROVIDERS.find((p) => p.key === active) ?? PROVIDERS[0]
-  const Icon = current.icon
-
-  return (
-    <Card>
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h3 className="text-lg font-semibold tracking-tight">Provider</h3>
-          <p className="text-sm text-muted-foreground">
-            Select the source of your code
-          </p>
-        </div>
-        <GitBranch className="size-5 shrink-0 text-muted-foreground" />
-      </div>
-
-      <div className="flex gap-x-6 gap-y-2 overflow-x-auto border-b border-border pb-2">
-        {PROVIDERS.map((p) => {
-          const on = active === p.key
-          const PIcon = p.icon
-          return (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => setActive(p.key)}
-              className={cn(
-                'flex shrink-0 items-center gap-2 border-b-2 px-1 pb-2 text-sm font-medium transition-colors',
-                on
-                  ? 'border-foreground text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <PIcon className="size-4" />
-              {p.label}
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-        <Icon className="size-8 text-muted-foreground" />
-        <p className="max-w-md text-sm text-muted-foreground">
-          To deploy using {current.label}, you need to configure your account
-          first. Please, go to{' '}
-          <Link
-            to={`/teams/${slug}/settings`}
-            className="font-medium text-foreground hover:underline"
-          >
-            Settings
-          </Link>{' '}
-          to do so.
-        </p>
-      </div>
-    </Card>
-  )
-}
-
-// Card is the panel wrapper used by the General tab's deploy/provider blocks.
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-5 rounded-xl border border-border bg-card p-5">
@@ -355,9 +331,6 @@ function Card({ children }: { children: React.ReactNode }) {
   )
 }
 
-// Toggle is a labelled switch pill used for Autodeploy / Clean Cache. The state
-// lives on the app row; clicking updates it optimistically and persists via the
-// settings endpoint, reverting if the request fails.
 function Toggle({
   appName,
   settingKey,

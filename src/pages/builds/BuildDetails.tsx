@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
-import { api, type App, type Build } from '@/api'
-import { errorMessage } from '@/lib/errors'
+import { api, type Build } from '@/api'
+import { useFetch } from '@/lib/useFetch'
 import { useTeamSlug } from '@/contexts/teams'
 import PageShell from '@/components/layout/PageShell'
 import { DeployDetail } from '@/components/builds/DeployDetail'
@@ -12,38 +11,21 @@ export default function BuildDetails() {
   const { id } = useParams()
   const slug = useTeamSlug()
   const projectsHome = `/teams/${slug}/projects`
+  const serviceBase = `/teams/${slug}/services`
   const location = useLocation()
-  // The list hands the row over via navigation state, so the common path (click
-  // through) paints instantly. We still fetch: a deep link or refresh has no
-  // state, and we want the parent app (for its environment and live URL).
   const passed = (location.state as { build?: Build } | null)?.build
-  const [build, setBuild] = useState<Build | null>(passed ?? null)
-  const [app, setApp] = useState<App | null>(null)
-  const [error, setError] = useState('')
 
-  useEffect(() => {
-    if (!id) return
-    let alive = true
-    Promise.all([api.apps(), api.builds()])
-      .then(([apps, builds]) => {
-        if (!alive) return
-        const found = builds.find((b) => b.id === id) ?? passed ?? null
-        if (!found) {
-          setError('Build not found.')
-          return
-        }
-        setBuild(found)
-        setApp(apps.find((a) => a.name === found.app_name) ?? null)
-      })
-      .catch((err) => {
-        if (!alive) return
-        setError(errorMessage(err))
-      })
-    return () => {
-      alive = false
+  const { data, error } = useFetch(async () => {
+    const [apps, builds] = await Promise.all([api.apps(), api.builds()])
+    const build = builds.find((b) => b.id === id) ?? passed ?? null
+    return {
+      build,
+      app: build ? (apps.find((a) => a.name === build.app_name) ?? null) : null,
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+  const build = data?.build ?? passed ?? null
+  const app = data?.app ?? null
+  const errorText = error || (data && !data.build ? 'Build not found.' : '')
 
   return (
     <PageShell>
@@ -55,14 +37,14 @@ export default function BuildDetails() {
           <>
             <ChevronRight className="size-3.5 shrink-0" />
             <Link
-              to={`${projectsHome}/${encodeURIComponent(build.app_name)}`}
+              to={`${serviceBase}/${encodeURIComponent(build.app_name)}`}
               className="truncate transition-colors hover:text-foreground"
             >
               {build.app_name}
             </Link>
             <ChevronRight className="size-3.5 shrink-0" />
             <Link
-              to={`${projectsHome}/${encodeURIComponent(build.app_name)}/deploys`}
+              to={`${serviceBase}/${encodeURIComponent(build.app_name)}/deploys`}
               className="transition-colors hover:text-foreground"
             >
               Deploys
@@ -71,9 +53,9 @@ export default function BuildDetails() {
         )}
       </nav>
 
-      {error ? (
+      {errorText ? (
         <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+          {errorText}
         </p>
       ) : !build ? (
         <DetailSkeleton />

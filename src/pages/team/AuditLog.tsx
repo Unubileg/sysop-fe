@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
+  Boxes,
   Check,
   ChevronDown,
+  FolderClosed,
   KeyRound,
   List,
   ListFilter,
@@ -30,7 +32,7 @@ import { formatTimestamp } from '@/lib/format'
 
 // Category groups individual events into the filter options. 'all' is the
 // catch-all; everything else maps to a closed set of event names.
-type Category = 'all' | 'auth' | 'members' | 'tokens'
+type Category = 'all' | 'auth' | 'members' | 'tokens' | 'services' | 'projects'
 type Sort = 'newest' | 'oldest'
 
 const CATEGORIES: {
@@ -57,6 +59,23 @@ const CATEGORIES: {
     label: 'API tokens',
     icon: KeyRound,
     events: ['token_created', 'token_revoked'],
+  },
+  {
+    key: 'services',
+    label: 'Services',
+    icon: Boxes,
+    events: [
+      'service_deployed',
+      'service_started',
+      'service_stopped',
+      'service_deleted',
+    ],
+  },
+  {
+    key: 'projects',
+    label: 'Projects',
+    icon: FolderClosed,
+    events: ['project_deleted'],
   },
 ]
 
@@ -242,7 +261,15 @@ function EventRow({ entry }: { entry: AuditEntry }) {
     <li className="flex items-start gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-muted/50">
       <Megaphone className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm">{summarize(entry.event)}</p>
+        <p className="text-sm">
+          {summarize(entry.event)}
+          {entry.target && (
+            <>
+              {' '}
+              <span className="font-medium">{entry.target}</span>
+            </>
+          )}
+        </p>
         <p
           className="mt-0.5 text-sm text-muted-foreground"
           title={entry.ip ? `IP ${entry.ip}` : undefined}
@@ -257,34 +284,32 @@ function EventRow({ entry }: { entry: AuditEntry }) {
   )
 }
 
-// summarize turns a raw event name into a human, event-centric sentence (the
-// actor lives on the "by …" line). Unknown events fall back to a humanized form
-// so new server-side events still read sensibly without a UI change.
+// Human, event-centric labels for the feed (the actor lives on the "by …" line;
+// the resource name, when present, is rendered after the label from
+// entry.target).
+const EVENT_LABELS: Record<string, string> = {
+  login: 'Signed in',
+  login_failed: 'Failed sign-in attempt',
+  logout: 'Signed out',
+  invite_created: 'Invited a new member',
+  invite_revoked: 'Revoked a pending invite',
+  invite_accepted: 'Accepted an invitation',
+  user_removed: 'Removed a member from the team',
+  token_created: 'Created an API token',
+  token_revoked: 'Revoked an API token',
+  service_deployed: 'Deployed service',
+  service_started: 'Started service',
+  service_stopped: 'Stopped service',
+  service_deleted: 'Deleted service',
+  project_deleted: 'Deleted project',
+}
+
+// summarize labels an event. Unknown events fall back to a humanized form so new
+// server-side events read sensibly without a UI change.
 function summarize(event: string): string {
-  switch (event) {
-    case 'login':
-      return 'Signed in'
-    case 'login_failed':
-      return 'Failed sign-in attempt'
-    case 'logout':
-      return 'Signed out'
-    case 'invite_created':
-      return 'Invited a new member'
-    case 'invite_revoked':
-      return 'Revoked a pending invite'
-    case 'invite_accepted':
-      return 'Accepted an invitation'
-    case 'user_removed':
-      return 'Removed a member from the team'
-    case 'token_created':
-      return 'Created an API token'
-    case 'token_revoked':
-      return 'Revoked an API token'
-    default: {
-      const s = event.replace(/[_-]+/g, ' ')
-      return s.charAt(0).toUpperCase() + s.slice(1)
-    }
-  }
+  if (event in EVENT_LABELS) return EVENT_LABELS[event]
+  const s = event.replace(/[_-]+/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 function LoadingState() {
@@ -312,7 +337,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
       <p className="text-sm text-muted-foreground">
         {filtered
           ? 'Try a different filter.'
-          : 'Sign-ins, invites, and token changes will appear here.'}
+          : 'Sign-ins, invites, token changes, and service deletions will appear here.'}
       </p>
     </div>
   )

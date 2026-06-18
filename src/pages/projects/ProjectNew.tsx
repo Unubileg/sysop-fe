@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useState, type FormEvent, type ReactNode } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft } from 'lucide-react'
-import { api, type Server } from '@/api'
+import { api } from '@/api'
 import { errorMessage } from '@/lib/errors'
+import { useFetch } from '@/lib/useFetch'
 import { useTeamSlug } from '@/contexts/teams'
 import PageShell, { PageHeader } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
@@ -11,38 +12,33 @@ import { cn } from '@/lib/utils'
 
 const ENVIRONMENTS = ['production', 'staging', 'development'] as const
 
-// ProjectNew creates an application: a repository to build from and where it
-// deploys. Environment variables and volumes are configured later on the
-// project's own settings, so the form stays focused on getting a project made.
+// ProjectNew creates a service: a repository to build from and where it deploys.
+// Environment variables and volumes are configured later on the service's own
+// settings, so the form stays focused on getting a service made. ?project=<id>
+// (set by the project page's "Create Service") places it under that project.
 export default function ProjectNew() {
   const navigate = useNavigate()
   const slug = useTeamSlug()
-  const projectsHome = `/teams/${slug}/projects`
+  const [params] = useSearchParams()
+  const projectId = params.get('project')
+  // Where Back/Cancel and the post-create redirect go: the project if we came
+  // from one, otherwise the projects list.
+  const backTo = projectId
+    ? `/teams/${slug}/projects/${projectId}`
+    : `/teams/${slug}/projects`
 
   const [name, setName] = useState('')
   const [repoURL, setRepoURL] = useState('')
   const [branch, setBranch] = useState('main')
   const [environment, setEnvironment] = useState<string>('production')
   const [serverID, setServerID] = useState('')
-  const [servers, setServers] = useState<Server[]>([])
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    let alive = true
-    // Servers are optional — a project can be assigned one later — so a failure
-    // here just leaves the picker empty rather than blocking creation.
-    api
-      .servers()
-      .then((list) => {
-        if (alive) setServers(list)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
+  // Servers are optional — a project can be assigned one later — so a load
+  // failure just leaves the picker empty rather than blocking creation.
+  const servers = useFetch(() => api.servers(), []).data ?? []
 
   const canSubmit = name.trim() !== '' && repoURL.trim() !== '' && !busy
 
@@ -58,12 +54,11 @@ export default function ProjectNew() {
         branch: branch.trim() || 'main',
         server_id: serverID || null,
         environment,
+        project_id: projectId,
       })
-      navigate(projectsHome)
+      navigate(backTo)
     } catch (err) {
-      setError(
-        errorMessage(err, 'Could not create the project.'),
-      )
+      setError(errorMessage(err, 'Could not create the service.'))
       setBusy(false)
     }
   }
@@ -72,17 +67,17 @@ export default function ProjectNew() {
     <PageShell className="max-w-2xl">
       <nav className="mb-4">
         <Link
-          to={projectsHome}
+          to={backTo}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-4" />
-          Back to projects
+          Back
         </Link>
       </nav>
 
       <PageHeader
-        title="New project"
-        description="Connect a repository and choose where it deploys. It joins the active team."
+        title="New service"
+        description="Connect a repository and choose where it deploys."
       />
 
       <form onSubmit={submit} className="space-y-8">
@@ -178,7 +173,7 @@ export default function ProjectNew() {
             {busy ? 'Creating…' : 'Create project'}
           </Button>
           <Button type="button" variant="ghost" asChild>
-            <Link to={projectsHome}>Cancel</Link>
+            <Link to={backTo}>Cancel</Link>
           </Button>
         </div>
       </form>

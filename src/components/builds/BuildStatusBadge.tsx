@@ -44,6 +44,11 @@ const STATUS: Record<string, StatusStyle> = {
     icon: XCircle,
     className: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
   },
+  cancelled: {
+    label: 'Cancelled',
+    icon: CircleSlash,
+    className: 'bg-muted text-muted-foreground',
+  },
 }
 
 export function BuildStatusBadge({ status }: { status: string }) {

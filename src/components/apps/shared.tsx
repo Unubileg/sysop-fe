@@ -1,11 +1,8 @@
 import { Star } from 'lucide-react'
-import { type Build } from '@/api'
+import { type App, type Build } from '@/api'
 import { cn } from '@/lib/utils'
 import { toggleFavorite, useFavorites } from '@/lib/favorites'
 
-// Shared building blocks used by both the apps list and an app's overview page.
-
-// repoHost names the git provider from a repo URL for the "Deploys from X" line.
 export function repoHost(url: string): string {
   try {
     const host = new URL(url).hostname
@@ -18,8 +15,6 @@ export function repoHost(url: string): string {
   }
 }
 
-// AppMonogram stands in for Netlify's deploy screenshot: a tile with the app's
-// initial, coloured deterministically from its name. Pass a size via className.
 const TILES = [
   'bg-rose-500/15 text-rose-600 dark:text-rose-400',
   'bg-amber-500/15 text-amber-600 dark:text-amber-400',
@@ -57,28 +52,38 @@ export function AppMonogram({
 
 type Status = { label: string; className: string }
 const NEUTRAL = 'bg-muted text-muted-foreground'
+const LIVE = 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+const BUILDING = 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+const FAILED = 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+const STOPPED = 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400'
 
-// appStatus derives an app's liveness from its latest build. No build means the
-// app exists but was never deployed.
-export function appStatus(build: Build | undefined): Status {
+export function appStatus(build: Build | undefined, app?: App): Status {
+  if (build?.status === 'building')
+    return { label: 'Building', className: BUILDING }
+  if (build?.status === 'failed' || build?.status === 'deploy_failed')
+    return { label: 'Failed', className: FAILED }
+
+  if (app) {
+    if (app.deploy_status === 'running') return { label: 'Live', className: LIVE }
+    if (app.deploy_status === 'stopped')
+      return { label: 'Stopped', className: STOPPED }
+    if (app.deploy_status == null && !build)
+      return { label: 'Not deployed', className: NEUTRAL }
+  }
+
   if (!build) return { label: 'Not deployed', className: NEUTRAL }
   switch (build.status) {
     case 'deployed':
-      return { label: 'Live', className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' }
+      return { label: 'Live', className: LIVE }
     case 'success':
       return { label: 'Built', className: 'bg-sky-500/15 text-sky-600 dark:text-sky-400' }
-    case 'building':
-      return { label: 'Building', className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' }
-    case 'failed':
-    case 'deploy_failed':
-      return { label: 'Failed', className: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' }
     default:
       return { label: build.status, className: NEUTRAL }
   }
 }
 
-export function AppStatusPill({ build }: { build?: Build }) {
-  const status = appStatus(build)
+export function AppStatusPill({ build, app }: { build?: Build; app?: App }) {
+  const status = appStatus(build, app)
   return (
     <span
       className={cn(
@@ -91,8 +96,6 @@ export function AppStatusPill({ build }: { build?: Build }) {
   )
 }
 
-// StarButton toggles a local favourite. preventDefault/stopPropagation keep a
-// click from also triggering an enclosing row link.
 export function StarButton({
   name,
   className,

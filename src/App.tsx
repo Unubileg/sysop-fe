@@ -1,4 +1,4 @@
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/auth'
 import { getActiveTeam } from './api'
 import { TeamProvider, useTeams } from '@/contexts/teams'
@@ -6,10 +6,12 @@ import Login from './pages/auth/Login'
 import AcceptInvite from './pages/auth/AcceptInvite'
 import Projects from './pages/projects/Projects'
 import ProjectNew from './pages/projects/ProjectNew'
+import ProjectServices from './pages/projects/ProjectServices'
 import ProjectDetail from './pages/projects/ProjectDetail'
 import Builds from './pages/builds/Builds'
 import BuildDetails from './pages/builds/BuildDetails'
 import Servers from './pages/Servers'
+import Docker from './pages/Docker'
 import Monitoring from './pages/Monitoring'
 import Tokens from './pages/team/Tokens'
 import AuditLog from './pages/team/AuditLog'
@@ -28,8 +30,6 @@ import { Toaster } from '@/components/ui/toast'
 export default function App() {
   const { user, loading } = useAuth()
 
-  // While we ask the server who we are, show a spinner instead of flashing the
-  // login screen for a logged-in user.
   if (loading) {
     return (
       <div className="flex min-h-svh items-center justify-center">
@@ -38,29 +38,24 @@ export default function App() {
     )
   }
 
-  // /accept-invite is public — the token in its URL is the credential, so it must
-  // render whether or not anyone is signed in. Every other route sits behind the
-  // app shell when authenticated, and falls back to the login screen otherwise.
   return (
     <Routes>
       <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route element={user ? <Shell /> : <Login />}>
-        {/* Every page is team-scoped: the active team's slug rides in the URL
-            so a link is self-describing and survives team switches in other
-            tabs. TeamProvider syncs the api-client header off the slug and
-            redirects when the slug isn't one of the caller's teams. */}
         <Route path="/teams/:teamSlug">
           <Route path="projects" element={<Projects />} />
-          <Route path="projects/new" element={<ProjectNew />} />
-          <Route path="projects/:name" element={<ProjectDetail />} />
-          <Route path="projects/:name/:section" element={<ProjectDetail />} />
+          <Route path="projects/:projectId" element={<ProjectServices />} />
+          <Route path="services/new" element={<ProjectNew />} />
+          <Route path="services/:name" element={<ProjectDetail />} />
+          <Route path="services/:name/:section" element={<ProjectDetail />} />
           <Route
-            path="projects/:name/:section/:tab"
+            path="services/:name/:section/:tab"
             element={<ProjectDetail />}
           />
           <Route path="builds" element={<Builds />} />
           <Route path="builds/:id" element={<BuildDetails />} />
           <Route path="servers" element={<Servers />} />
+          <Route path="docker" element={<Docker />} />
           <Route path="monitoring" element={<Monitoring />} />
           <Route path="tokens" element={<Tokens />} />
           <Route path="audit" element={<AuditLog />} />
@@ -68,20 +63,15 @@ export default function App() {
           <Route path="users/new" element={<UserNew />} />
           <Route path="settings" element={<Settings />} />
         </Route>
-        {/* Catch-all forwards to the active team's projects page. */}
         <Route path="*" element={<TeamFallback />} />
       </Route>
     </Routes>
   )
 }
 
-// TeamFallback rewrites any path that doesn't match a known route (including the
-// root) to the active team's projects page. It exists because the authenticated
-// shell can't render team-scoped chrome until a slug is in the URL.
 function TeamFallback() {
   const { teams, loading } = useTeams()
   if (loading) return null
-  // Prefer the last-used team (api client tracks it); else the first membership.
   const target = teams.find((t) => t.slug === getActiveTeam()) ?? teams[0]
   if (!target) {
     return (
@@ -93,8 +83,11 @@ function TeamFallback() {
   return <Navigate to={`/teams/${target.slug}/projects`} replace />
 }
 
-// Shell is the authenticated layout: sidebar, header, and the routed page in the
-// Outlet. Rendered only when a user is present.
+function TeamScopedOutlet() {
+  const { teamSlug } = useParams()
+  return <Outlet key={teamSlug} />
+}
+
 function Shell() {
   return (
     <TeamProvider>
@@ -106,7 +99,7 @@ function Shell() {
               <SidebarTrigger />
             </header>
             <div className="flex-1 overflow-auto">
-              <Outlet />
+              <TeamScopedOutlet />
             </div>
           </SidebarInset>
           <Toaster />

@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react'
 
-// Favorite apps are a local convenience: the backend has no per-user favourites,
-// so we keep the starred set in localStorage and sync it across components (and
-// browser tabs) with events.
 const KEY = 'sysop:favorite-apps'
 const EVENT = 'sysop:favorites-changed'
 
@@ -23,8 +20,6 @@ export function toggleFavorite(name: string): void {
   window.dispatchEvent(new Event(EVENT))
 }
 
-// useFavorites re-renders the caller whenever the set changes, including edits
-// from another tab via the native 'storage' event.
 export function useFavorites(): Set<string> {
   const [favs, setFavs] = useState(getFavorites)
   useEffect(() => {

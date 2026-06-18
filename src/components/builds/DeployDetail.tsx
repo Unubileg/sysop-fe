@@ -6,10 +6,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatDateTime, formatDuration } from '@/lib/format'
 
-// DeployDetail renders one build's full deploy view: a status header, the
-// deploy summary, and the captured log. It's shared by the global build page
-// (/builds/:id) and the project's Deploys section (/projects/:name/deploys/:id),
-// so the two surfaces never drift apart.
 export function DeployDetail({ build, app }: { build: Build; app: App | null }) {
   const verb = build.status === 'deployed' ? 'Deployed' : 'Built'
   const liveUrl = app?.server_ip
@@ -82,8 +78,6 @@ export function DeployDetail({ build, app }: { build: Build; app: App | null }) 
   )
 }
 
-// deployTitle echoes Netlify's "Published deploy for X" headline, reading
-// naturally for each build state.
 function deployTitle(build: Build): string {
   switch (build.status) {
     case 'deployed':
@@ -120,14 +114,10 @@ function Field({
   )
 }
 
-// CopyButton copies the whole log to the clipboard and flips to a brief
-// confirmation. It hides itself when there is nothing to copy.
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   if (text.trim() === '') return null
   async function copy() {
-    // Clipboard writes can reject when the page lacks focus or runs without a
-    // secure context; swallow that so a failed copy never throws at the user.
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
@@ -144,9 +134,6 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-// BuildLog renders the captured log_output as a numbered terminal panel. The
-// log is the full text the backend stored for the build; there is no live tail
-// here yet (the SSE endpoint needs a CORS fix before credentialed streaming).
 function BuildLog({ text }: { text: string }) {
   if (text.trim() === '') {
     return (

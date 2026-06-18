@@ -1,10 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-
-// usePersistentBoolean is a boolean useState that survives reloads by mirroring
-// to localStorage under `key`. When `key` changes (e.g. navigating between
-// projects) it re-reads, so each project keeps its own value. Falls back to
-// `fallback` when nothing is stored or storage is unavailable (SSR/private
-// mode), and never throws.
 export function usePersistentBoolean(
   key: string,
   fallback: boolean,
@@ -21,7 +15,6 @@ export function usePersistentBoolean(
       try {
         localStorage.setItem(key, JSON.stringify(next))
       } catch {
-        // Storage can be unavailable (private mode, quota); keep in-memory state.
       }
     },
     [key],

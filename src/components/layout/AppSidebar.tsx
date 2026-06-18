@@ -5,14 +5,14 @@ import {
   Boxes,
   Check,
   ChevronsUpDown,
-  Hammer,
+  Container,
+  Rocket,
   KeyRound,
   LogOut,
   Plus,
   ScrollText,
   Server,
   Settings,
-  Terminal,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -59,8 +59,9 @@ type NavItem = { title: string; path: string; icon: LucideIcon }
 // path is the suffix under /teams/<slug>; Settings is account-level (no slug).
 const PLATFORM_NAV: NavItem[] = [
   { title: 'Projects', path: 'projects', icon: Boxes },
-  { title: 'Builds', path: 'builds', icon: Hammer },
+  { title: 'Deployments', path: 'builds', icon: Rocket },
   { title: 'Servers', path: 'servers', icon: Server },
+  { title: 'Docker', path: 'docker', icon: Container },
   { title: 'Monitoring', path: 'monitoring', icon: Activity },
   { title: 'Members', path: 'users', icon: Users },
 ]
@@ -76,7 +77,6 @@ export function AppSidebar() {
   const { pathname } = useLocation()
   const { activeTeam } = useTeams()
   const slug = activeTeam?.slug
-  const home = slug ? `/teams/${slug}/projects` : '/settings'
 
   // Two-character initials from the email give the footer a stable avatar
   // without pulling an image.

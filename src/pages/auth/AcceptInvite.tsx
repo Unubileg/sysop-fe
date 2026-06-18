@@ -8,10 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 
-// AcceptInvite is the public landing for an invite link (/accept-invite?token=…).
-// It is rendered outside the authenticated app: the token in the URL is the only
-// credential. We look the invite up to show who it is for, then let the holder set
-// their own password — on success the server logs them straight in.
 export default function AcceptInvite() {
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
@@ -82,9 +78,6 @@ function Brand() {
   )
 }
 
-// AcceptForm sets the new account's password. On success the server has issued a
-// session cookie, so a full navigation re-runs AuthProvider's bootstrap and lands
-// the newcomer inside the app already signed in.
 function AcceptForm({ token, invite }: { token: string; invite: Invite }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -102,8 +95,6 @@ function AcceptForm({ token, invite }: { token: string; invite: Invite }) {
     setError('')
     try {
       await api.acceptInvite(token, password)
-      // No active team is set yet; the root catch-all routes us to the user's
-      // first membership's projects page.
       window.location.href = '/'
     } catch (err) {
       setError(

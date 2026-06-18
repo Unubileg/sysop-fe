@@ -13,6 +13,8 @@ import {
 import { errorMessage } from '@/lib/errors'
 import { useTeamSlug } from '@/contexts/teams'
 import { Domains } from '@/components/projects/Domains'
+import { Environment } from '@/components/projects/Environment'
+import { Logs } from '@/components/projects/Logs'
 import { Deploys, DeployPanel } from '@/components/projects/Deploys'
 import PageShell from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
@@ -33,13 +35,13 @@ import { formatRelative } from '@/lib/format'
 // until their backend exists. Keys double as the :section URL segment.
 const TABS = [
   { key: 'general', label: 'General', ready: true },
-  { key: 'environment', label: 'Environment', ready: false },
+  { key: 'environment', label: 'Environment', ready: true },
   { key: 'domains', label: 'Domains', ready: true },
   { key: 'deploys', label: 'Deployments', ready: true },
   { key: 'preview-deployments', label: 'Preview Deployments', ready: false },
   { key: 'schedules', label: 'Schedules', ready: false },
   { key: 'volume-backups', label: 'Volume Backups', ready: false },
-  { key: 'logs', label: 'Logs', ready: false },
+  { key: 'logs', label: 'Logs', ready: true },
   { key: 'patches', label: 'Patches', ready: false },
   { key: 'monitoring', label: 'Monitoring', ready: false },
   { key: 'advanced', label: 'Advanced', ready: false },
@@ -85,6 +87,34 @@ export default function ProjectDetail() {
     }
   }, [name])
 
+  // Poll the build list on the General and Deployments tabs so a freshly queued
+  // deploy shows up and its status (building → deployed/failed) updates live,
+  // without a manual refresh. General is included so the Deploy Settings Start/Stop
+  // button can react to a build's outcome. Other tabs don't poll.
+  useEffect(() => {
+    if (!name || (section !== 'deploys' && section !== 'general')) return
+    let alive = true
+    const refresh = async () => {
+      try {
+        // Refetch the app too: its deploy_status is the source of truth for the
+        // Deploy Settings Start/Stop button (running ↔ stopped).
+        const [apps, all] = await Promise.all([api.apps(), api.builds()])
+        if (!alive) return
+        const found = apps.find((a) => a.name === name)
+        if (found) setApp(found)
+        setBuilds(all.filter((b) => b.app_name === name))
+      } catch {
+        // Transient errors shouldn't disrupt the page; the next tick retries.
+      }
+    }
+    refresh() // immediate, so a just-queued build appears on arrival
+    const id = setInterval(refresh, 4000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [name, section])
+
   return (
     <PageShell>
       <nav className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -113,6 +143,19 @@ export default function ProjectDetail() {
           tab={tab}
           slug={slug}
           config={config}
+          onBuildDeleted={(id) =>
+            setBuilds((prev) => prev.filter((b) => b.id !== id))
+          }
+          onBuildsChanged={() => {
+            // Refetch app (deploy_status → Start/Stop) and builds together.
+            Promise.all([api.apps(), api.builds()])
+              .then(([apps, all]) => {
+                const found = apps.find((a) => a.name === name)
+                if (found) setApp(found)
+                setBuilds(all.filter((b) => b.app_name === name))
+              })
+              .catch(() => {})
+          }}
         />
       )}
     </PageShell>
@@ -126,6 +169,8 @@ function ProjectView({
   tab,
   slug,
   config,
+  onBuildDeleted,
+  onBuildsChanged,
 }: {
   app: App
   builds: Build[]
@@ -133,6 +178,8 @@ function ProjectView({
   tab?: string
   slug: string
   config: PublicConfig | null
+  onBuildDeleted: (id: string) => void
+  onBuildsChanged: () => void
 }) {
   const latest = builds[0]
 
@@ -145,7 +192,7 @@ function ProjectView({
             <h1 className="truncate text-xl font-semibold tracking-tight">
               {app.name}
             </h1>
-            <AppStatusPill build={latest} />
+            <AppStatusPill build={latest} app={app} />
             <StarButton name={app.name} />
           </div>
           <p className="text-sm text-muted-foreground">
@@ -175,6 +222,8 @@ function ProjectView({
           tab={tab}
           slug={slug}
           config={config}
+          onBuildDeleted={onBuildDeleted}
+          onBuildsChanged={onBuildsChanged}
         />
       </div>
     </div>
@@ -198,7 +247,7 @@ function ProjectTabs({
         return (
           <Link
             key={t.key}
-            to={`/teams/${slug}/projects/${encodeURIComponent(name)}/${t.key}`}
+            to={`/teams/${slug}/services/${encodeURIComponent(name)}/${t.key}`}
             className={cn(
               'shrink-0 whitespace-nowrap rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
               on
@@ -223,6 +272,8 @@ function SectionContent({
   tab,
   slug,
   config,
+  onBuildDeleted,
+  onBuildsChanged,
 }: {
   app: App
   builds: Build[]
@@ -230,17 +281,28 @@ function SectionContent({
   tab?: string
   slug: string
   config: PublicConfig | null
+  onBuildDeleted: (id: string) => void
+  onBuildsChanged: () => void
 }) {
   if (section === 'deploys')
     return tab ? (
       <DeployPanel app={app} builds={builds} id={tab} />
     ) : (
-      <Deploys builds={builds} name={app.name} slug={slug} />
+      <Deploys
+        builds={builds}
+        name={app.name}
+        slug={slug}
+        webhookSecret={app.webhook_secret}
+        onBuildDeleted={onBuildDeleted}
+        onBuildsChanged={onBuildsChanged}
+      />
     )
   if (section === 'domains') return <Domains app={app} config={config} />
+  if (section === 'environment') return <Environment app={app} />
+  if (section === 'logs') return <Logs app={app} />
   const known = TABS.find((t) => t.key === section)
   if (known && !known.ready) return <ComingSoon label={known.label} />
-  return <ProjectConfiguration app={app} />
+  return <ProjectConfiguration app={app} onChanged={onBuildsChanged} />
 }
 
 // ComingSoon stands in for Netlify sections sysop doesn't back yet, keeping the

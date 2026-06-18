@@ -3,11 +3,6 @@ import { useLocation } from 'react-router-dom'
 import { Check, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// Shared building blocks for settings-style pages (team settings, project
-// configuration): an anchored section, an info card with label/value rows, a
-// form field, a "not yet" notice, and the hook that scrolls to a #section.
-
-// Section is one anchored block: a heading the nav can scroll to, plus content.
 export function Section({
   id,
   title,
@@ -30,7 +25,6 @@ export function Section({
   )
 }
 
-// InfoCard is a titled panel holding a row list.
 export function InfoCard({
   title,
   children,
@@ -48,8 +42,6 @@ export function InfoCard({
   )
 }
 
-// Row is one label/value line in an InfoCard. `hint` adds sub-text under the
-// label; `copy` adds a copy button next to the value (e.g. an ID).
 export function Row({
   label,
   hint,
@@ -84,7 +76,6 @@ export function Row({
   )
 }
 
-// CopyButton copies a value to the clipboard, flashing a check on success.
 export function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -97,7 +88,6 @@ export function CopyButton({ value }: { value: string }) {
           setCopied(true)
           setTimeout(() => setCopied(false), 1500)
         } catch {
-          // Clipboard can be blocked; the value is selectable regardless.
         }
       }}
       className="text-muted-foreground transition-colors hover:text-foreground"
@@ -107,7 +97,6 @@ export function CopyButton({ value }: { value: string }) {
   )
 }
 
-// Field labels a form control with an optional hint below it.
 export function Field({
   label,
   htmlFor,
@@ -130,7 +119,6 @@ export function Field({
   )
 }
 
-// Notice frames an honest "sysop doesn't do this yet" explanation.
 export function Notice({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -139,8 +127,6 @@ export function Notice({ children }: { children: ReactNode }) {
   )
 }
 
-// useHashScroll scrolls the anchored section into view when the nav links to a
-// #section on the page (deep links and same-page anchor clicks alike).
 export function useHashScroll() {
   const { hash } = useLocation()
   useEffect(() => {

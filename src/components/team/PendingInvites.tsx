@@ -7,8 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatRelative } from '@/lib/format'
 
-// PendingInvites lists outstanding invite links. It renders nothing until at
-// least one invite is awaiting acceptance.
 export function PendingInvites({
   invites,
   onRevoked,
@@ -32,8 +30,6 @@ export function PendingInvites({
   )
 }
 
-// InviteRow is one outstanding invite, with a Cancel action that revokes the link
-// so it can no longer be used.
 function InviteRow({
   invite,
   onRevoked,

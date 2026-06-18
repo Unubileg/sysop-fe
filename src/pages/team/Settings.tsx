@@ -8,7 +8,6 @@ import { Link, useLocation } from 'react-router-dom'
 import { api } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import { Field, InfoCard, Row, Section } from '@/components/settings'
-import { GithubIcon, GitlabIcon } from '@/components/icons/GitProviderIcons'
 import { useTeams, useTeamSlug } from '@/contexts/teams'
 import PageShell from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
@@ -31,7 +30,6 @@ import { formatRelative } from '@/lib/format'
 // URL hash, so a tab is linkable and survives reloads.
 const SETTINGS_TABS = [
   { key: 'team-details', label: 'Team details' },
-  { key: 'git-providers', label: 'Git providers' },
   { key: 'danger-zone', label: 'Danger zone' },
 ] as const
 
@@ -63,9 +61,7 @@ export default function Settings() {
         <SettingsTabs slug={slug} active={active} />
       </div>
       <div className="mt-6 min-w-0">
-        {active === 'git-providers' ? (
-          <GitProviders />
-        ) : active === 'danger-zone' ? (
+        {active === 'danger-zone' ? (
           <DangerZone isAdmin={isAdmin} />
         ) : (
           <TeamDetails isAdmin={isAdmin} />
@@ -239,47 +235,6 @@ function TeamDetails({ isAdmin }: { isAdmin: boolean }) {
           </p>
         )}
       </form>
-    </Section>
-  )
-}
-
-// GitProviders lets the team connect a Git provider for authentication. sysop
-// supports GitHub and GitLab. It's UI scaffolding today — the connect buttons
-// aren't wired to the backend, so the connected list is empty.
-function GitProviders() {
-  return (
-    <Section
-      id="git-providers"
-      title="Git Providers"
-      description="Connect your Git provider for authentication."
-    >
-      <div className="space-y-5 rounded-xl border border-border bg-card p-5">
-        <p className="text-sm font-medium">Available Providers</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            className="flex h-12 items-center justify-center gap-2.5 rounded-lg border border-border bg-secondary text-sm font-medium text-secondary-foreground transition-colors hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)]"
-          >
-            <GithubIcon className="size-5" />
-            Github
-          </button>
-          <button
-            type="button"
-            className="flex h-12 items-center justify-center gap-2.5 rounded-lg bg-[#7C3AED] text-sm font-medium text-white transition-colors hover:bg-[#6D28D9]"
-          >
-            <GitlabIcon className="size-5" />
-            GitLab
-          </button>
-        </div>
-        <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            No Git providers connected yet.
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Git provider authentication isn't wired to the backend yet.
-        </p>
-      </div>
     </Section>
   )
 }

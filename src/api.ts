@@ -1,13 +1,6 @@
-// Minimal typed client for the control-plane API. Every request carries the
-// session cookie (credentials:'include'); the server sets/clears sysop_session.
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
-
-// Role is the account's permission tier. The backend enforces one difference
-// today: admins may manage members, members may not.
+export const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
 export type Role = 'admin' | 'member'
 
-// User mirrors auth.User on the backend (json tags). gitlab_id is omitted when
-// the account is not linked to GitLab.
 export type User = {
   id: string
   email: string
@@ -17,8 +10,6 @@ export type User = {
   created_at: string
 }
 
-// Team mirrors auth.Team: a tenant plus the caller's role within it. The active
-// team's slug rides on every request as the X-Sysop-Team header (see setActiveTeam).
 export type Team = {
   id: string
   slug: string
@@ -27,9 +18,6 @@ export type Team = {
   created_at: string
 }
 
-// Invite mirrors auth.Invite: a pending membership an admin created. The holder of
-// the one-time link sets their own password to accept; accepted_at is omitted
-// while it is still pending. team_name names the team they're joining.
 export type Invite = {
   id: string
   email: string
@@ -40,8 +28,6 @@ export type Invite = {
   created_at: string
 }
 
-// Build mirrors a /api/builds row: one CI build of an application. duration_ms
-// is null while the build is still running; log_output holds the captured log.
 export type Build = {
   id: string
   app_name: string
@@ -53,10 +39,14 @@ export type Build = {
   duration_ms: number | null
 }
 
-// App mirrors a /api/apps row: a deployable application. server_id/server_ip/
-// port are null until it lands on a server. env_variables/volume_mappings are
-// free-form JSON we don't introspect here. status is the row's own state
-// ('active'); the live deploy outcome comes from its latest Build.
+export type Project = {
+  id: string
+  name: string
+  description: string
+  created_at: string
+  service_count: number
+}
+
 export type App = {
   id: string
   name: string
@@ -68,16 +58,15 @@ export type App = {
   env_variables: unknown
   volume_mappings: unknown
   environment: string
-  // Deploy toggles, surfaced in the General tab's Deploy Settings panel.
-  // autodeploy gates webhook auto-builds; clean_cache makes builds run --no-cache.
+  project_id: string | null
   autodeploy: boolean
   clean_cache: boolean
+  webhook_secret: string
   status: string
   created_at: string
+  deploy_status: string | null
 }
 
-// Server mirrors a /api/servers row: a machine running sysopd that apps deploy
-// onto. The new-project form lists these so a project can pick where it lands.
 export type Server = {
   id: string
   name: string
@@ -85,8 +74,6 @@ export type Server = {
   status: string
 }
 
-// AppDomain mirrors api.AppDomain: an explicit hostname routed by the gateway
-// straight to an app, without parsing the app name out of the subdomain.
 export type AppDomain = {
   id: string
   application_id: string
@@ -94,29 +81,21 @@ export type AppDomain = {
   created_at: string
 }
 
-// AuditEntry mirrors api.AuditEntry: one row of the audit log, joined with the
-// actor's email when the user still exists (NULL after user deletion).
 export type AuditEntry = {
   id: number
   user_id?: string
   email?: string
   event: string
+  target?: string
   ip: string
   created_at: string
 }
 
-// PublicConfig describes how the gateway routes, so the dashboard can show an
-// app's canonical URL the same way the gateway serves it. base_domain is the
-// suffix for default "<app>.<base>" subdomains (empty in dev); tls picks the
-// scheme (https when Let's Encrypt is on).
 export type PublicConfig = {
   base_domain: string
   tls: boolean
 }
 
-// ServerMetrics is a live resource snapshot of the server an app runs on,
-// rendered by the monitoring dashboard. All sizes are raw bytes; the block/
-// network counters are cumulative since the host booted.
 export type ServerMetrics = {
   cpu_percent: number
   memory_used_bytes: number
@@ -133,7 +112,6 @@ export type ServerMetrics = {
   network_tx_bytes: number
 }
 
-// ApiError carries the HTTP status so callers can branch on 401/403/429.
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -143,9 +121,6 @@ export class ApiError extends Error {
   }
 }
 
-// The active team's slug is sent on every request as X-Sysop-Team so the server
-// scopes data to it. It is persisted so a reload keeps the same team; the team
-// context (teams.tsx) owns it and calls setActiveTeam on switch.
 const TEAM_KEY = 'sysop_team'
 let activeTeamSlug = localStorage.getItem(TEAM_KEY) ?? ''
 
@@ -159,8 +134,6 @@ export function getActiveTeam(): string {
   return activeTeamSlug
 }
 
-// request issues a JSON call and throws ApiError on any non-2xx. The backend
-// always replies with a JSON {"error": ...} envelope on failure.
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
     ...init,
@@ -176,8 +149,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     body = text ? JSON.parse(text) : undefined
   } catch {
-    // A non-JSON error body (e.g. a plain-text 404 from the mux) shouldn't blow
-    // up as a SyntaxError here; fall back to the raw text as the message below.
     body = undefined
   }
   if (!res.ok) {
@@ -187,9 +158,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+export type DockerContainer = {
+  id: string
+  name: string
+  state: string
+  status: string
+  image: string
+}
+
 export const api = {
-  // Public gateway config — base domain and TLS, for rendering canonical URLs.
   config: () => request<PublicConfig>('/api/config'),
+  dockerContainers: (serverId?: string) =>
+    request<DockerContainer[]>(
+      '/api/docker/containers' +
+        (serverId ? '?server_id=' + encodeURIComponent(serverId) : ''),
+    ),
   login: (email: string, password: string) =>
     request<{ user: User }>('/api/login', {
       method: 'POST',
@@ -214,14 +197,25 @@ export const api = {
   leaveTeam: () =>
     request<void>('/api/teams/leave', { method: 'POST' }),
   apps: () => request<App[]>('/api/apps'),
-  // Create a project (the backend rejects a duplicate name with 409). Env vars
-  // and volumes are configured later, so they start empty.
+  // Projects group services. listProjects returns each project's service count.
+  projects: () => request<Project[]>('/api/projects'),
+  createProject: (name: string, description: string) =>
+    request<{ success: boolean; id: string }>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+  deleteProject: (id: string) =>
+    request<{ success: boolean }>('/api/projects/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
   createApp: (input: {
     name: string
     repo_url: string
     branch: string
     server_id: string | null
     environment: string
+    project_id: string | null
   }) =>
     request<{ success: boolean }>('/api/apps', {
       method: 'POST',
@@ -255,6 +249,65 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ app_name: appName }),
     }),
+  // Permanently delete a service: cancels in-flight builds, removes the container
+  // and its volumes from the server, then deletes the app row (its builds,
+  // deployments, and domains cascade away). There is no undo.
+  deleteApp: (appName: string) =>
+    request<{ success: boolean }>('/api/apps/delete', {
+      method: 'POST',
+      body: JSON.stringify({ app_name: appName }),
+    }),
+  // Roll back to a previously deployed build, redeploying its image on the app's
+  // stable port without rebuilding. Omit buildId to roll back to the build that
+  // ran just before the current one.
+  rollbackApp: (appName: string, buildId?: string) =>
+    request<{ success: boolean; build_id: string; message: string }>(
+      '/api/apps/rollback',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          app_name: appName,
+          ...(buildId ? { build_id: buildId } : {}),
+        }),
+      },
+    ),
+  // Delete one deployment (build) from the app's history. The backend refuses to
+  // delete the build that's currently running (409).
+  deleteDeploy: (buildId: string) =>
+    request<{ success: boolean }>('/api/apps/deploys/delete', {
+      method: 'POST',
+      body: JSON.stringify({ build_id: buildId }),
+    }),
+  // Rotate the app's deploy-webhook secret, invalidating the old URL. Returns the
+  // new secret so the dashboard can show the fresh URL.
+  regenerateWebhook: (appName: string) =>
+    request<{ success: boolean; webhook_secret: string }>(
+      '/api/apps/webhook/regenerate',
+      {
+        method: 'POST',
+        body: JSON.stringify({ app_name: appName }),
+      },
+    ),
+  // Cancel the app's in-flight builds (Cancel Queues / Kill Build). Returns how
+  // many running builds were stopped.
+  cancelBuilds: (appName: string) =>
+    request<{ success: boolean; cancelled: number }>(
+      '/api/apps/builds/cancel',
+      {
+        method: 'POST',
+        body: JSON.stringify({ app_name: appName }),
+      },
+    ),
+  // Clear the app's whole build history except the running build. Returns how many
+  // were removed.
+  clearDeploys: (appName: string) =>
+    request<{ success: boolean; deleted: number }>(
+      '/api/apps/deploys/clear',
+      {
+        method: 'POST',
+        body: JSON.stringify({ app_name: appName }),
+      },
+    ),
   // Update the per-app deploy toggles. Omitted fields are left unchanged.
   updateAppSettings: (
     appName: string,
@@ -263,6 +316,13 @@ export const api = {
     request<{ success: boolean }>('/api/apps/settings', {
       method: 'POST',
       body: JSON.stringify({ app_name: appName, ...settings }),
+    }),
+  // Replace the app's environment variables (one "KEY=value" entry per element).
+  // Takes effect on the next deploy.
+  updateAppEnv: (appName: string, envVariables: string[]) =>
+    request<{ success: boolean }>('/api/apps/env', {
+      method: 'POST',
+      body: JSON.stringify({ app_name: appName, env_variables: envVariables }),
     }),
   servers: () => request<Server[]>('/api/servers'),
   builds: () => request<Build[]>('/api/builds'),

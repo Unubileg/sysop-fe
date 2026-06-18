@@ -1,3 +1,4 @@
+import { useState, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronLeft,
@@ -10,33 +11,53 @@ import {
   Eye,
   Trash2,
   GitCommitHorizontal,
+  Loader2,
+  RotateCcw,
 } from 'lucide-react'
-import { type App, type Build } from '@/api'
+import { api, BASE, type App, type Build } from '@/api'
 import { useTeamSlug } from '@/contexts/teams'
+import { errorMessage } from '@/lib/errors'
 import { BuildStatusBadge } from '@/components/builds/BuildStatusBadge'
 import { DeployDetail } from '@/components/builds/DeployDetail'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { toast } from '@/components/ui/toast'
 import { formatRelative } from '@/lib/format'
 
-// notYet reports a control that's part of the UI but not backed by an endpoint
-// yet, so the page stays honest instead of silently doing nothing.
-const notYet = (what: string) => toast(`${what} isn't available yet`, 'info')
-
-// Deploys is the project's Deployments tab: the redeploy webhook, a row of
-// queue/rollback controls, and the recent deployment cards. Build actions are
-// wired to the backend; queue/rollback controls and delete are scaffolding.
 export function Deploys({
   builds,
   name,
   slug,
+  webhookSecret,
+  onBuildDeleted,
+  onBuildsChanged,
 }: {
   builds: Build[]
   name: string
   slug: string
+  webhookSecret: string
+  onBuildDeleted: (id: string) => void
+  onBuildsChanged: () => void
 }) {
   const list = builds.slice(0, 10)
-  const webhookUrl = `${window.location.origin}/api/apps/deploy?app_name=${encodeURIComponent(name)}`
+  const hasQueue = builds.some(
+    (b) =>
+      b.status === 'building' ||
+      b.status === 'pending' ||
+      b.status === 'queued',
+  )
+  const [secret, setSecret] = useState(webhookSecret)
+  const webhookUrl = `${BASE}/api/deploy/${secret}`
 
   async function copyWebhook() {
     try {
@@ -58,38 +79,36 @@ export function Deploys({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => notYet('Clearing deployments')}
-          >
-            <Paintbrush className="size-4" />
-            Clear deployments
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => notYet('Killing the build')}
-          >
-            <Scissors className="size-4" />
-            Kill Build
-          </Button>
-          <Button
-            size="sm"
-            className="border-transparent bg-red-600 text-white hover:bg-red-600/90"
-            onClick={() => notYet('Cancelling queues')}
-          >
-            <Ban className="size-4" />
-            Cancel Queues
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => notYet('Rollback configuration')}
-          >
-            <Settings className="size-4" />
-            Configure Rollbacks
-          </Button>
+          <ClearDeploysDialog
+            name={name}
+            builds={builds}
+            onCleared={onBuildsChanged}
+          />
+          <CancelBuildsButton
+            name={name}
+            onDone={onBuildsChanged}
+            label="Kill Build"
+            icon={Scissors}
+            triggerVariant="secondary"
+            title="Kill running build"
+            body={`Stop the build currently in progress for ${name}. Its git/build/push processes are killed and the build is marked cancelled.`}
+          />
+          <CancelBuildsButton
+            name={name}
+            onDone={onBuildsChanged}
+            label="Cancel Queues"
+            icon={Ban}
+            triggerVariant={hasQueue ? 'default' : 'secondary'}
+            triggerClassName={
+              hasQueue
+                ? 'border-transparent bg-red-600 text-white hover:bg-red-600/90'
+                : undefined
+            }
+            disabled={!hasQueue}
+            title="Cancel queued builds"
+            body={`Cancel every in-flight build for ${name}. Any build that's queued or running is stopped and marked cancelled.`}
+          />
+          <RollbackDialog name={name} builds={builds} />
         </div>
       </div>
 
@@ -111,14 +130,7 @@ export function Deploys({
               <Copy className="size-3.5" />
             </button>
           </span>
-          <button
-            type="button"
-            onClick={() => notYet('Regenerating the webhook URL')}
-            className="text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Regenerate webhook URL"
-          >
-            <RotateCw className="size-4" />
-          </button>
+          <RegenerateWebhookButton name={name} onRegenerated={setSecret} />
         </div>
       </div>
 
@@ -127,14 +139,14 @@ export function Deploys({
           No deployments yet.
         </div>
       ) : (
-        <ul className="space-y-3">
-          {list.map((b, i) => (
-            <DeploymentCard
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background">
+          {list.map((b) => (
+            <DeploymentRow
               key={b.id}
               build={b}
-              index={i + 1}
               name={name}
               slug={slug}
+              onDeleted={onBuildDeleted}
             />
           ))}
         </ul>
@@ -143,68 +155,328 @@ export function Deploys({
   )
 }
 
-function DeploymentCard({
+function RegenerateWebhookButton({
+  name,
+  onRegenerated,
+}: {
+  name: string
+  onRegenerated: (secret: string) => void
+}) {
+  return (
+    <ConfirmDialog
+      trigger={
+        <button
+          type="button"
+          className="text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="Regenerate webhook URL"
+        >
+          <RotateCw className="size-4" />
+        </button>
+      }
+      title="Regenerate webhook URL"
+      description={
+        <>
+          Issue a new secret for {name}'s deploy webhook. The current URL stops
+          working immediately — update it anywhere it's configured.
+        </>
+      }
+      confirmLabel="Regenerate"
+      confirmIcon={RotateCw}
+      errorToast="Could not regenerate the URL."
+      onConfirm={async () => {
+        const { webhook_secret } = await api.regenerateWebhook(name)
+        onRegenerated(webhook_secret)
+        toast('Webhook URL regenerated')
+      }}
+    />
+  )
+}
+
+function CancelBuildsButton({
+  name,
+  onDone,
+  label,
+  icon: Icon,
+  triggerVariant,
+  triggerClassName,
+  disabled,
+  title,
+  body,
+}: {
+  name: string
+  onDone: () => void
+  label: string
+  icon: ComponentType<{ className?: string }>
+  triggerVariant: 'default' | 'secondary' | 'destructive'
+  triggerClassName?: string
+  disabled?: boolean
+  title: string
+  body: string
+}) {
+  return (
+    <ConfirmDialog
+      trigger={
+        <Button
+          variant={triggerVariant}
+          size="sm"
+          className={triggerClassName}
+          disabled={disabled}
+        >
+          <Icon className="size-4" />
+          {label}
+        </Button>
+      }
+      title={title}
+      description={body}
+      confirmLabel={label}
+      confirmIcon={Icon}
+      cancelLabel="Dismiss"
+      errorToast="Could not cancel builds."
+      onConfirm={async () => {
+        const { cancelled } = await api.cancelBuilds(name)
+        toast(
+          cancelled > 0
+            ? `Cancelled ${cancelled} build${cancelled === 1 ? '' : 's'}`
+            : 'No builds in progress',
+        )
+        onDone()
+      }}
+    />
+  )
+}
+
+function ClearDeploysDialog({
+  name,
+  builds,
+  onCleared,
+}: {
+  name: string
+  builds: Build[]
+  onCleared: () => void
+}) {
+  const nothingToClear = builds.length <= 1
+
+  return (
+    <ConfirmDialog
+      trigger={
+        <Button variant="secondary" size="sm" disabled={nothingToClear}>
+          <Paintbrush className="size-4" />
+          Clear deployments
+        </Button>
+      }
+      title="Clear deployments"
+      description={
+        <>
+          Delete {name}'s entire deployment history except the build that's
+          currently running. This removes the build records and can't be undone.
+        </>
+      }
+      confirmLabel="Clear"
+      confirmIcon={Paintbrush}
+      errorToast="Could not clear deployments."
+      onConfirm={async () => {
+        const { deleted } = await api.clearDeploys(name)
+        toast(
+          deleted > 0
+            ? `Cleared ${deleted} deployment${deleted === 1 ? '' : 's'}`
+            : 'Nothing to clear',
+        )
+        onCleared()
+      }}
+    />
+  )
+}
+
+function RollbackDialog({ name, builds }: { name: string; builds: Build[] }) {
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState('')
+
+  const deployable = builds.filter((b) => b.status === 'deployed')
+  const currentId = deployable[0]?.id
+
+  async function rollback(buildID: string) {
+    setPending(buildID)
+    try {
+      await api.rollbackApp(name, buildID)
+      toast('Rolled back')
+      setOpen(false)
+    } catch (err) {
+      toast(errorMessage(err, 'Could not roll back.'), 'error')
+    } finally {
+      setPending('')
+    }
+  }
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => !pending && setOpen(next)}
+    >
+      <AlertDialogTrigger asChild>
+        <Button variant="secondary" size="sm">
+          <Settings className="size-4" />
+          Configure Rollbacks
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Roll back deployment</AlertDialogTitle>
+          <AlertDialogDescription>
+            Redeploy a previous build's image on {name}'s current port, without
+            rebuilding. The running deployment is marked "current".
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {deployable.length <= 1 ? (
+          <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+            No earlier deployment to roll back to yet.
+          </p>
+        ) : (
+          <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+            {deployable.map((b) => {
+              const isCurrent = b.id === currentId
+              return (
+                <li
+                  key={b.id}
+                  className="flex items-center gap-3 px-3 py-2.5"
+                >
+                  <GitCommitHorizontal className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <span className="font-mono text-sm">
+                      {b.commit_hash.slice(0, 7)}
+                    </span>
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {formatRelative(b.created_at)}
+                    </p>
+                  </div>
+                  {isCurrent ? (
+                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                      current
+                    </span>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={!!pending}
+                      onClick={() => rollback(b.id)}
+                    >
+                      {pending === b.id ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="size-4" />
+                      )}
+                      Roll back
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={!!pending}>Close</AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function DeploymentRow({
   build,
-  index,
   name,
   slug,
+  onDeleted,
 }: {
   build: Build
-  index: number
   name: string
   slug: string
+  onDeleted: (id: string) => void
 }) {
-  const { label, dot } = statusInfo(build.status)
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const short = build.commit_hash.slice(0, 7)
+
+  async function handleDelete() {
+    setPending(true)
+    try {
+      await api.deleteDeploy(build.id)
+      toast('Deployment deleted')
+      setOpen(false)
+      onDeleted(build.id)
+    } catch (err) {
+      toast(errorMessage(err, 'Could not delete the deployment.'), 'error')
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
-    <li className="rounded-xl border border-border bg-background p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">
-              {index}. {label}
-            </span>
-            <span className={cn('size-2.5 shrink-0 rounded-full', dot)} />
-          </div>
-          <p className="text-sm text-muted-foreground">Manual deployment</p>
+    <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50">
+      <GitCommitHorizontal className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="font-mono text-sm">{short}</span>
+          <BuildStatusBadge status={build.status} />
         </div>
-        <div className="flex flex-col items-end gap-3">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">
-              {formatRelative(build.created_at)}
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-              <Clock className="size-3" />
-              {formatDuration(build.duration_ms)}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button asChild size="sm">
-              <Link
-                to={`/teams/${slug}/projects/${encodeURIComponent(name)}/deploys/${build.id}`}
-                state={{ build }}
-              >
-                View
-              </Link>
-            </Button>
+        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+          {build.image_tag || '—'}
+        </p>
+      </div>
+      <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">
+        {formatRelative(build.created_at)}
+      </span>
+      <Button asChild variant="ghost" size="icon-sm" aria-label="View deploy">
+        <Link
+          to={`/teams/${slug}/services/${encodeURIComponent(name)}/deploys/${build.id}`}
+          state={{ build }}
+        >
+          <Eye className="size-4" />
+        </Link>
+      </Button>
+      <AlertDialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
+        <AlertDialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Delete deploy"
+            className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete deployment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove deployment <span className="font-mono">{short}</span> from{' '}
+              {name}'s history. This deletes the build record and can't be undone.
+              The deployment that's currently running can't be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            {/* A plain Button (not AlertDialogAction) so the dialog stays open
+                with a spinner until the request resolves. */}
             <Button
-              size="sm"
-              className="border-transparent bg-red-600 text-white hover:bg-red-600/90"
-              onClick={() => notYet('Deleting deployments')}
+              variant="destructive"
+              disabled={pending}
+              onClick={handleDelete}
             >
-              <Trash2 className="size-4" />
+              {pending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
               Delete
             </Button>
-          </div>
-        </div>
-      </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </li>
   )
 }
 
-// DeployPanel shows one deploy's detail inside the project's Deploys section, so
-// the project header and submenu stay in context rather than dropping the user
-// onto the standalone build page. The build comes from the already-loaded list;
-// an unknown id shows an honest fallback back to the list.
 export function DeployPanel({
   app,
   builds,
@@ -219,7 +491,7 @@ export function DeployPanel({
   return (
     <div className="space-y-4">
       <Link
-        to={`/teams/${slug}/projects/${encodeURIComponent(app.name)}/deploys`}
+        to={`/teams/${slug}/services/${encodeURIComponent(app.name)}/deploys`}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ChevronLeft className="size-3.5" />

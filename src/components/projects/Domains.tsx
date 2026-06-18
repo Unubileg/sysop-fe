@@ -6,9 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 
-// Domains lists the custom hostnames pointing at this app and lets a user add
-// or detach them. The default "<app>.<base>" subdomain is implicit — only the
-// extras the user attached live in app_domains.
 export function Domains({
   app,
   config,
@@ -21,8 +18,6 @@ export function Domains({
   const [input, setInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // The default subdomain is implicit (not stored in app_domains); show it as a
-  // read-only primary entry when a base domain is configured.
   const scheme = config?.tls ? 'https' : 'http'
   const defaultHost = config?.base_domain
     ? `${app.name}.${config.base_domain}`
@@ -40,7 +35,6 @@ export function Domains({
 
   useEffect(() => {
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.id])
 
   async function add(e: React.FormEvent) {

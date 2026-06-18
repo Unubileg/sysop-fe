@@ -20,13 +20,8 @@ const POLL_MS = 3000
 const MAX_POINTS = 40 // ~2 minutes of history at the poll interval
 const GiB = 1024 ** 3
 
-// A point in the live, client-side time series. We don't store history on the
-// server — the charts fill in as the page stays open, like Dokploy/Netlify.
 type Point = { t: number; cpu: number; memGiB: number; diskGB: number }
 
-// Monitoring polls one server and shows live CPU, memory, disk, Docker disk
-// breakdown, and block/network I/O. The line/area charts accumulate while the
-// page is open; the snapshot cards reflect the latest poll.
 export function ServerMonitor({ server }: { server: Server }) {
   const [latest, setLatest] = useState<ServerMetrics | null>(null)
   const [history, setHistory] = useState<Point[]>([])
@@ -180,7 +175,6 @@ export function ServerMonitor({ server }: { server: Server }) {
   )
 }
 
-// DockerCard renders the `docker system df` breakdown as a donut.
 function DockerCard({ metrics }: { metrics: ServerMetrics }) {
   const slices = [
     { name: 'Images', value: metrics.docker_images_bytes, color: '#3b82f6' },
@@ -246,7 +240,6 @@ function DockerCard({ metrics }: { metrics: ServerMetrics }) {
   )
 }
 
-// Card is one monitoring panel: a title, sub-line, and content.
 function Card({
   title,
   subtitle,
@@ -279,7 +272,6 @@ function Meter({ pct, color }: { pct: number; color: string }) {
   )
 }
 
-// Stat is a label/value row for the cumulative I/O cards.
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between border-b border-border py-2 last:border-0">
@@ -289,7 +281,6 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-// ChartFrame wraps a recharts chart at a fixed height in a responsive container.
 function ChartFrame({ children }: { children: ReactNode }) {
   return (
     <div className="h-48">
@@ -300,10 +291,6 @@ function ChartFrame({ children }: { children: ReactNode }) {
   )
 }
 
-// axes builds the shared X/Y axes + tooltip for the time-series charts. The X
-// axis (the synthetic sample index) is hidden; the Y axis is fixed to the
-// resource's range so the line doesn't jump as values change. recharts flattens
-// fragment children, so returning them from a helper works.
 function axes(fmt: (v: number) => string, domain: [number, number]) {
   return (
     <>

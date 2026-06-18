@@ -24,8 +24,6 @@ import {
 import { cn } from '@/lib/utils'
 import { formatDateTime, formatRelative } from '@/lib/format'
 
-// MemberRow is one account entry: avatar, email, role, and an Options menu that
-// opens the details popup or the remove confirmation.
 export function MemberRow({
   user,
   isSelf,
@@ -42,12 +40,8 @@ export function MemberRow({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [roleErr, setRoleErr] = useState('')
-  // Removing members is admin-only. The server also refuses to delete the
-  // bootstrap root admin, and an admin cannot delete their own account.
   const removable = isAdmin && !user.is_root && !isSelf
 
-  // Promote/demote within the team. Self is excluded so an admin can't strip
-  // their own access here; the server guards the team's last admin regardless.
   async function changeRole(role: Role) {
     setRoleErr('')
     try {
@@ -142,8 +136,6 @@ function RoleBadge({ user }: { user: User }) {
   return <Badge variant="secondary">Member</Badge>
 }
 
-// DetailsDialog is a read-only popup. It reuses AlertDialog (a centered modal)
-// with a single Close action.
 function DetailsDialog({
   user,
   open,
@@ -208,8 +200,6 @@ function DetailField({
   )
 }
 
-// RemoveDialog confirms and performs the delete. It uses a plain Button (not
-// AlertDialogAction) so the modal stays open during the request and on error.
 function RemoveDialog({
   user,
   open,
