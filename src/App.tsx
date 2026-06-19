@@ -18,6 +18,7 @@ import AuditLog from './pages/team/AuditLog'
 import Users from './pages/team/Users'
 import UserNew from './pages/team/UserNew'
 import Settings from './pages/team/Settings'
+import GitProviders from './pages/team/GitProviders'
 import { AppSidebar } from './components/layout/AppSidebar'
 import {
   SidebarInset,
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="docker" element={<Docker />} />
           <Route path="monitoring" element={<Monitoring />} />
           <Route path="tokens" element={<Tokens />} />
+          <Route path="git-providers" element={<GitProviders />} />
           <Route path="audit" element={<AuditLog />} />
           <Route path="users" element={<Users />} />
           <Route path="users/new" element={<UserNew />} />

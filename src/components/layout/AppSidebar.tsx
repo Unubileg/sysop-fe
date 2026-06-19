@@ -6,6 +6,7 @@ import {
   Check,
   ChevronsUpDown,
   Container,
+  GitBranch,
   Rocket,
   KeyRound,
   LogOut,
@@ -68,6 +69,7 @@ const PLATFORM_NAV: NavItem[] = [
 
 const TEAM_ADMIN_NAV: NavItem[] = [
   { title: 'API Tokens', path: 'tokens', icon: KeyRound },
+  { title: 'Git Providers', path: 'git-providers', icon: GitBranch },
   { title: 'Audit Log', path: 'audit', icon: ScrollText },
   { title: 'Settings', path: 'settings', icon: Settings },
 ]

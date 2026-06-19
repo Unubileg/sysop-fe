@@ -166,6 +166,29 @@ export type DockerContainer = {
   image: string
 }
 
+// A team's connection to a self-hosted GitLab. The token is write-only — never
+// returned by the API.
+export type GitProvider = {
+  id: string
+  name: string
+  base_url: string
+  created_at: string
+}
+
+// A repository the provider's token can see, from the GitLab API.
+export type GitRepo = {
+  id: number
+  name: string
+  path_with_namespace: string
+  http_url_to_repo: string
+  default_branch: string
+}
+
+export type GitBranch = {
+  name: string
+  default: boolean
+}
+
 export const api = {
   config: () => request<PublicConfig>('/api/config'),
   dockerContainers: (serverId?: string) =>
@@ -216,8 +239,10 @@ export const api = {
     server_id: string | null
     environment: string
     project_id: string | null
+    git_provider_id?: string | null
+    gitlab_project_id?: number | null
   }) =>
-    request<{ success: boolean }>('/api/apps', {
+    request<{ success: boolean; webhook_warning?: string }>('/api/apps', {
       method: 'POST',
       body: JSON.stringify({ ...input, env_variables: [], volume_mappings: [] }),
     }),
@@ -393,4 +418,33 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ token, password }),
     }),
+  // Git providers — a team's self-hosted GitLab connection. Create validates the
+  // token against the live instance before storing it (encrypted, write-only).
+  gitProviders: () =>
+    request<{ providers: GitProvider[] }>('/api/git/providers'),
+  createGitProvider: (input: {
+    name: string
+    base_url: string
+    token: string
+  }) =>
+    request<{ provider: GitProvider }>('/api/git/providers', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  deleteGitProvider: (id: string) =>
+    request<void>('/api/git/providers/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+  // Browse a provider's repos (optionally filtered) and a repo's branches, for the
+  // service-create picker.
+  gitRepos: (providerId: string, search?: string) =>
+    request<{ repos: GitRepo[] }>(
+      `/api/git/providers/${providerId}/repos` +
+        (search ? '?search=' + encodeURIComponent(search) : ''),
+    ),
+  gitBranches: (providerId: string, projectId: number) =>
+    request<{ branches: GitBranch[] }>(
+      `/api/git/providers/${providerId}/branches?project_id=${projectId}`,
+    ),
 }
